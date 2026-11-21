@@ -1,33 +1,46 @@
-name: Docker build e teste
+name: Docker Compose (Django + Postgres)
 
 on:
   push:
   pull_request:
 
 jobs:
-  docker:
+  compose:
     runs-on: ubuntu-latest
     steps:
       - name: Baixa o código
         uses: actions/checkout@v4
 
-      - name: docker build
-        run: docker build -t bookstore:latest .
+      - name: docker compose up (web + db)
+        run: docker compose up -d --build
 
-      - name: Roda os testes dentro do container
-        run: docker run --rm bookstore:latest python manage.py test
-
-      - name: docker run e teste da API
+      - name: Espera a API subir
         run: |
-          docker run -d --name bookstore -p 8000:8000 bookstore:latest
           for i in $(seq 1 30); do
-            curl -sf http://localhost:8000/bookstore/v1/product/ && break
+            curl -sf http://localhost:8000/bookstore/v1/product/ > /dev/null && break
             sleep 2
           done
-          echo
+          docker compose ps
+
+      - name: Confere que o Django está usando o Postgres
+        run: |
+          docker compose exec -T web python manage.py shell -c "from django.db import connection; print('Banco em uso:', connection.vendor, '-', connection.settings_dict['HOST'], '-', connection.settings_dict['NAME'])"
+          docker compose exec -T db psql -U bookstore_dev -d bookstore_dev_db -c "\dt"
+
+      - name: Roda os testes no container (com Postgres)
+        run: docker compose exec -T web python manage.py test
+
+      - name: Testa a API
+        run: |
           echo "GET /bookstore/v1/product/ -> $(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/bookstore/v1/product/)"
           echo "GET /bookstore/v1/order/   -> $(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/bookstore/v1/order/)"
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/bookstore/v1/product/)" = "200"
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/bookstore/v1/order/)" = "401"
-          docker logs bookstore
-          docker rm -f bookstore
+
+      - name: Logs
+        if: always()
+        run: docker compose logs
+
+      - name: docker compose down
+        if: always()
+        run: docker compose down -v

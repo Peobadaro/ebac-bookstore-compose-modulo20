@@ -99,3 +99,24 @@ docker run --rm bookstore python manage.py test
 ```
 
 O workflow `.github/workflows/docker-build.yml` faz esse mesmo build, roda os testes no container e testa a API a cada push.
+
+## Docker Compose (Django + Postgres)
+
+O `docker-compose.yml` sobe dois serviços:
+
+| Serviço | Imagem | O que faz |
+|---|---|---|
+| `db` | `postgres:16-alpine` | Banco Postgres, com os dados num volume (`postgres_data`) |
+| `web` | build do `Dockerfile` | Django, que espera o `db` ficar pronto, aplica as migrations e sobe na porta 8000 |
+
+As variáveis de ambiente de desenvolvimento ficam no `env.dev` (`SQL_ENGINE`, `SQL_HOST=db`, usuário, senha etc.). O `settings.py` lê essas variáveis; sem elas (rodando fora do Docker) o projeto continua usando o SQLite.
+
+```bash
+docker compose up -d --build                      # sobe web + db
+docker compose exec web python manage.py test     # testes com Postgres
+docker compose exec web python manage.py createsuperuser
+docker compose logs -f web
+docker compose down                               # derruba (use -v para apagar o banco)
+```
+
+API: http://localhost:8000/bookstore/v1/product/
